@@ -1,9 +1,9 @@
 # SlangTracer-Student
 
 ## Team Members
-Caleb Copley \n
-Brandon Thompson \n
-Sam Puffer \n
+Caleb Copley  
+Brandon Thompson  
+Sam Puffer  
 
 ## Summary
 Recreation by undergraduate students of existing project credited in original citation for Natural Language Processing course CS5134
