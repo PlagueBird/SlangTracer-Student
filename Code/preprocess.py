@@ -14,8 +14,11 @@ process_GSD(word_hash, input_dir = "", output_dir = "")
 
 data = [pickle.load(open(h+'.pickle', 'rb')) for h in word_hash]
 
-regions = ['[US]', '[UK]']
-#regions = ['[US]', '[UK]', '[Aus]']
+#Original Version
+#regions = ['[US]', '[UK]']
+
+#New Version accounting for Australian Slang
+regions = ['[US]', '[UK]', '[Aus]']
 
 punctuations = '!\'"#$%&()\*\+,-\./:;<=>?@[\\]^_`{|}~'
 

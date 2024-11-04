@@ -40,14 +40,17 @@ def classify_region(def_entry):
     #############
     # 0 - US
     # 1 - UK
-    # 2 - Shared
+    # 2 - AUS
+    # 3 - Shared
     #############
             
     stamp_set = set([s[1] for s in def_entry.stamps])
     if '[US]' in stamp_set and '[UK]' in stamp_set:
-        return 2
+        return 3
     elif '[US]' in stamp_set:
         return 0
+    elif '[AUS]' in stamp_set:
+        return 2
     else:
         return 1
     
@@ -57,6 +60,8 @@ def tag2str(tag):
     if tag==1:
         return '[UK]'
     if tag==2:
+        return '[AUS]'
+    if tag==3:
         return '[Shared]'
 
 def tags2str(tags):
@@ -65,7 +70,7 @@ def tags2str(tags):
         results.append(tag2str(tag))
     return results
 
-def normalize_pair(a, b, ep=0):
+def normalize_set(a, b, c, ep=0):
     tmp = a+b+ep*2
     return ((a+ep)/tmp, (b+ep)/tmp)
 
@@ -147,6 +152,8 @@ def create_url(word, yr_start, yr_end, corpus='[US]', case_insensitive=True):
         url += str(28)
     if corpus == '[UK]':
         url += str(29)
+    if corpus == '[AUS]':
+        url += str(30)
     url += '&smoothing=0'
     return url
 
@@ -181,7 +188,7 @@ def ngram_lookup(word, year, corpus='[US]'):
 # Running Models on the Data
 N_trials = 20
 MEM = 30000
-categories = ['[US]', '[UK]']
+categories = ['[US]', '[UK]', '[AUS]']
 model_tags = ['sense_freq', 'sense_freq_shared', \
               'lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared', \
               '1nn', 'prototype', 'exemplar', 'exemplar_opt', \
@@ -226,6 +233,7 @@ for n in range(N_trials):
 
             us_shared_inds = []
             uk_shared_inds = []
+            aus_shared_inds = []
 
             for i in range(len(entries)):
 
@@ -233,9 +241,11 @@ for n in range(N_trials):
 
                 us_shared_pos = set()
                 uk_shared_pos = set()
+                aus_shared_pos = set()
                 for j in range(len(entries_shared)):
                     seen_us = False
                     seen_uk = False
+                    seen_aus = False
                     for stamp in entries_shared[j].stamps:
                         if stamp[0] < date:
                             if stamp[1] == '[US]' and not seen_us:
@@ -246,8 +256,13 @@ for n in range(N_trials):
                                 seen_uk = True
                                 if stamp[0] >= date-MEM:
                                     uk_shared_pos.add(j)
+                            if stamp[1] == '[AUS]' and not seen_aus:
+                                seen_aus = True
+                                if stamp[0] >= date-MEM:
+                                    aus_shared_pos.add(j)
                 us_shared_inds.append(np.asarray(list(us_shared_pos)))
                 uk_shared_inds.append(np.asarray(list(uk_shared_pos)))
+                aus_shared_inds.append(np.asarray(list(aus_shared_pos)))
                     
         chain_memstart = []
         for i in range(len(dates)):
@@ -289,8 +304,9 @@ for n in range(N_trials):
 
             us_slang_freq = ngram_lookup(word, date, '[US]')
             uk_slang_freq = ngram_lookup(word, date, '[UK]')
+            aus_slang_freq = ngram_lookup(word, date, '[AUS]')
 
-            priors['form_need'].append(normalize_pair(us_slang_freq, uk_slang_freq, ep=1e-8))
+            priors['form_need'].append(normalize_pair(us_slang_freq, uk_slang_freq ep=1e-8))
 
             # Semantic Need
 
@@ -298,19 +314,25 @@ for n in range(N_trials):
 
             us_freq_total = 0
             uk_freq_total = 0
+            aus_freq_total = 0
 
             us_more_freq = 0
             uk_more_freq = 0
+            aus_more_freq = 0
 
             for content_word in content_words:
                 us_freq = ngram_lookup(content_word, date, '[US]')
                 uk_freq = ngram_lookup(content_word, date, '[UK]')
+                aus_freq = ngram_lookup(content_word, date, '[AUS]')
 
                 us_freq_total += us_freq
                 uk_freq_total += uk_freq
+                aus_freq_total += aus_freq
 
-                if uk_freq > us_freq:
+                if uk_freq > us_freq and uk_freq > aus_freq:
                     uk_more_freq += 1
+                elif aus_freq > uk_freq and aus_freq > us_freq:
+                    aus_more_freq += 1
                 else:
                     us_more_freq += 1
 
@@ -331,19 +353,25 @@ for n in range(N_trials):
 
                 us_freq_total = 0
                 uk_freq_total = 0
+                aus_freq_total = 0
 
                 us_more_freq = 0
                 uk_more_freq = 0
+                aus_more_freq = 0
 
                 for content_word in content_words:
                     us_freq = ngram_lookup(content_word, date, '[US]')
                     uk_freq = ngram_lookup(content_word, date, '[UK]')
+                    aus_freq = ngram_lookup(content_word, date, '[AUS]')
 
                     us_freq_total += us_freq
                     uk_freq_total += uk_freq
+                    aus_freq_total += aus_freq
 
-                    if uk_freq > us_freq:
+                    if uk_freq > us_freq and uk_freq > aus_freq:
                         uk_more_freq += 1
+                    elif aus_freq > us_freq and aus_freq > uk_freq:
+                        aus_more_freq += 1
                     else:
                         us_more_freq += 1
 
@@ -358,8 +386,9 @@ for n in range(N_trials):
 
         chain_us = np.arange(chain_start, len(dates))[regions[chain_start:]==0]
         chain_uk = np.arange(chain_start, len(dates))[regions[chain_start:]==1]
+        chain_aus = np.arange(chain_start, len(dates))[regions[chain_start:]==2]
 
-        N_sample = min(len(chain_us), len(chain_uk))
+        N_sample = min(len(chain_us), len(chain_uk), len(chain_aus))
         if N_sample == 0:
             continue
 
@@ -367,8 +396,10 @@ for n in range(N_trials):
             chain_us = chain_us[np.random.choice(len(chain_us), N_sample, replace=False)]
         if len(chain_uk) > N_sample:
             chain_uk = chain_uk[np.random.choice(len(chain_uk), N_sample, replace=False)]
+        if len(chain_aus) > N_sample:
+            chain_aus = chain_aus[np.random.choice(len(chain_aus), N_sample, replace=False)]
 
-        chain = np.sort(np.concatenate((chain_us, chain_uk)))
+        chain = np.sort(np.concatenate((chain_us, chain_uk, chain_aus)))
             
         for chain_pos in chain:
 
@@ -415,7 +446,8 @@ for n in range(N_trials):
             preds['sense_freq'] = np.sum(example_regions==0) < np.sum(example_regions==1)
             if len(entries_shared) > 0:
                 preds['sense_freq_shared'] = (np.sum(example_regions==0) + len(us_shared_inds[chain_pos])) < \
-                                             (np.sum(example_regions==1) + len(uk_shared_inds[chain_pos]))
+                                             (np.sum(example_regions==1) + len(uk_shared_inds[chain_pos])) < \
+                                             (np.sum(example_regions==1) + len(aus_shared_inds[chain_pos]))
             else:
                 preds['sense_freq_shared'] = preds['sense_freq']
 
@@ -434,11 +466,12 @@ for n in range(N_trials):
                 if len(entries_shared) == 0:
                     preds['lda_shared'] = preds['lda']
                 else:
-                    us_shared_pos = [i for i in us_shared_inds[chain_pos] if i not in uk_shared_inds[chain_pos]]
-                    uk_shared_pos = [i for i in uk_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos]]
+                    us_shared_pos = [i for i in us_shared_inds[chain_pos] if i not in uk_shared_inds[chain_pos] and i not in aus_shared_inds[chain_pos]]
+                    uk_shared_pos = [i for i in uk_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos] and i not in uk_shared_inds[chain_pos]]
+                    aus_shared_pos = [i for i in aus_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos] and i not in us_shared_inds[chain_pos]]
 
                     embeds_tmp = np.concatenate((def_embeds[chain_memstart[chain_pos]:chain_pos], def_embeds_shared[us_shared_pos], def_embeds_shared[uk_shared_pos]), axis=0)
-                    regions_tmp = np.concatenate((example_regions, [0]*len(us_shared_pos), [1]*len(uk_shared_pos)))
+                    regions_tmp = np.concatenate((example_regions, [0]*len(us_shared_pos), [1]*len(uk_shared_pos, [2]*len(aus_shared_pos))))
 
                     lda_shared = LinearDiscriminantAnalysis(n_components=1)
                     lda_shared.fit(embeds_tmp, regions_tmp)
@@ -459,15 +492,21 @@ for n in range(N_trials):
 
             us_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0])
             uk_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==1])
+            aus_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==2])
+
 
             us_def_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos][example_regions==0]
             uk_def_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos][example_regions==1]
+            aus_def_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos][example_regions==2]
 
             us_prototype = np.mean(us_def_embeds, axis=0)
             uk_prototype = np.mean(uk_def_embeds, axis=0)
+            aus_prototype = np.mean(aus_def_embeds, axis=0)
 
             us_proto_dist = np.linalg.norm(us_prototype-def_embeds[chain_pos])
             uk_proto_dist = np.linalg.norm(uk_prototype-def_embeds[chain_pos])
+            aus_proto_dist = np.linalg.norm(aus_prototype-def_embeds[chain_pos])
+
 
             preds['1nn'] = int(np.max(us_dists) < np.max(uk_dists))
             preds['exemplar'] = int(np.mean(us_dists) < np.mean(uk_dists))
@@ -488,8 +527,9 @@ for n in range(N_trials):
 
                         us_dists = np.exp(embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==0] / h)
                         uk_dists = np.exp(embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==1] / h)
+                        aus_dists = np.exp(embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==2] / h)
 
-                        pred_dist = np.asarray([np.mean(us_dists), np.mean(uk_dists)])
+                        pred_dist = np.asarray([np.mean(us_dists), np.mean(uk_dists), np.mean(aus_dists)])
                         pred_dist = pred_dist / np.sum(pred_dist)
                         nll += np.log(pred_dist[regions[pred_pos]])
                     return -1 * nll
@@ -499,6 +539,8 @@ for n in range(N_trials):
 
                 us_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0] / h_old['exemplar_opt'])
                 uk_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==1] / h_old['exemplar_opt'])
+                aus_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==2] / h_old['exemplar_opt'])
+
 
                 preds['exemplar'] = int(np.mean(us_dists) < np.mean(uk_dists))
 
@@ -512,6 +554,7 @@ for n in range(N_trials):
             else:
                 us_shared_pos = us_shared_inds[chain_pos]
                 uk_shared_pos = uk_shared_inds[chain_pos]
+                us_shared_pos = aus_shared_inds[chain_pos]
 
                 if us_shared_pos.shape[0] > 0:
                     us_dists = np.exp(np.concatenate((embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0], embed_dists_shared[chain_pos][us_shared_pos])))
@@ -527,11 +570,21 @@ for n in range(N_trials):
                     uk_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==1])
                     uk_def_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos][example_regions==1]
 
+                if aus_shared_pos.shape[0] > 0:
+                    aus_dists = np.exp(np.concatenate((embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0], embed_dists_shared[chain_pos][aus_shared_pos])))
+                    aus_def_embeds = np.concatenate((def_embeds[chain_memstart[chain_pos]:chain_pos][example_regions==0], def_embeds_shared[aus_shared_pos]), axis=0)
+                else:
+                    us_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0])
+                    us_def_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos][example_regions==0]
+
                 us_prototype = np.mean(us_def_embeds, axis=0)
                 uk_prototype = np.mean(uk_def_embeds, axis=0)
+                aus_prototype = np.mean(aus_def_embeds, axis=0)
 
                 us_proto_dist = np.linalg.norm(us_prototype-def_embeds[chain_pos])
                 uk_proto_dist = np.linalg.norm(uk_prototype-def_embeds[chain_pos])
+                aus_proto_dist = np.linalg.norm(aus_prototype-def_embeds[chain_pos])
+
 
                 preds['1nn_shared'] = int(np.max(us_dists) < np.max(uk_dists))
                 preds['exemplar_shared'] = int(np.mean(us_dists) < np.mean(uk_dists))
@@ -548,6 +601,7 @@ for n in range(N_trials):
 
                             us_shared_pos = us_shared_inds[pred_pos]
                             uk_shared_pos = uk_shared_inds[pred_pos]
+                            aus_shared_pos = aus_shared_inds[pred_pos]
 
                             if us_shared_pos.shape[0] > 0:
                                 us_dists = np.exp(np.concatenate((embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==0], embed_dists_shared[pred_pos][us_shared_pos])) / h)
@@ -559,7 +613,12 @@ for n in range(N_trials):
                             else:
                                 uk_dists = np.exp(embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==1] / h)
 
-                            pred_dist = np.asarray([np.mean(us_dists), np.mean(uk_dists)])
+                            if aus_shared_pos.shape[0] > 0:
+                                aus_dists = np.exp(np.concatenate((embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==1], embed_dists_shared[pred_pos][uk_shared_pos])) / h)
+                            else:
+                                aus_dists = np.exp(embed_dists[pred_pos][chain_memstart[pred_pos]:pred_pos][region_sub==1] / h)
+
+                            pred_dist = np.asarray([np.mean(us_dists), np.mean(uk_dists), np.mean(aus_dists)])
                             pred_dist = pred_dist / np.sum(pred_dist)
                             nll += np.log(pred_dist[regions[pred_pos]])
                         return -1 * nll
@@ -569,6 +628,7 @@ for n in range(N_trials):
 
                     us_shared_pos = us_shared_inds[chain_pos]
                     uk_shared_pos = uk_shared_inds[chain_pos]
+                    aus_shared_pos = aus_shared_inds[chain_pos]
 
                     if us_shared_pos.shape[0] > 0:
                         us_dists = np.exp(np.concatenate((embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0], embed_dists_shared[chain_pos][us_shared_pos])) / h_old['exemplar_opt_shared'])
@@ -579,6 +639,11 @@ for n in range(N_trials):
                         uk_dists = np.exp(np.concatenate((embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==1], embed_dists_shared[chain_pos][uk_shared_pos])) / h_old['exemplar_opt_shared'])
                     else:
                         uk_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==1] / h_old['exemplar_opt_shared'])
+
+                    if aus_shared_pos.shape[0] > 0:
+                        aus_dists = np.exp(np.concatenate((embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==2], embed_dists_shared[chain_pos][aus_shared_pos])) / h_old['exemplar_opt_shared'])
+                    else:
+                        aus_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==2] / h_old['exemplar_opt_shared'])
 
                     preds['exemplar_shared'] = int(np.mean(us_dists) < np.mean(uk_dists))
 
@@ -594,7 +659,7 @@ model_list = {'Baseline': ['sense_freq', 'sense_freq_shared'],\
                       'Chaining':['1nn', 'prototype', 'exemplar'],\
                       'Chaining - Shared':['1nn_shared', 'prototype_shared', 'exemplar_shared']}
 
-print("%51s%12s%14s" % ("[US]", "[UK]", "Total"))
+print("%51s%12s%14s" % ("[US]", "[UK]", "[AUS]", "Total"))
 for group, models in model_list.items():
     print("["+group.upper()+"]")
     for model in models:
@@ -605,9 +670,14 @@ for group, models in model_list.items():
         uk_correct = np.asarray([correct_counts_sample[('[UK]', n)][model] for n in range(N_trials)])
         uk_total = np.asarray([pred_count_sample[('[UK]', n)] for n in range(N_trials)])
 
+        aus_correct = np.asarray([correct_counts_sample[('[AUS]', n)][model] for n in range(N_trials)])
+        aus_total = np.asarray([pred_count_sample[('[AUS]', n)] for n in range(N_trials)])
+
         print("%35s:   %.1f (%.2f)  %.1f (%.2f)  %.1f (%.2f)" % \
             (model.upper(), \
             np.mean(us_correct / us_total * 100), np.std(us_correct / us_total * 100),\
             np.mean(uk_correct / uk_total * 100), np.std(uk_correct / uk_total * 100),\
-            np.mean((us_correct + uk_correct) / (us_total+uk_total) * 100), np.std((us_correct + uk_correct) / (us_total+uk_total) * 100)))
+            np.mean(aus_correct / aus_total * 100), np.std(aus_correct / aus_total * 100),\
+
+            np.mean((us_correct + uk_correct + aus_correct) / (us_total+uk_total+aus_total) * 100), np.std((us_correct + uk_correct + aus_correct) / (us_total+uk_total+aus_total) * 100)))
     print("")
