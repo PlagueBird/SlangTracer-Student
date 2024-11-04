@@ -45,7 +45,7 @@ def classify_region(def_entry):
     #############
             
     stamp_set = set([s[1] for s in def_entry.stamps])
-    if '[US]' in stamp_set and '[UK]' in stamp_set:
+    if '[US]' in stamp_set and '[UK]' in stamp_set and '[AUS]' in stamp_set:
         return 3
     elif '[US]' in stamp_set:
         return 0
