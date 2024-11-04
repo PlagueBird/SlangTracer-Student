@@ -45,7 +45,7 @@ def classify_region(def_entry):
     #############
             
     stamp_set = set([s[1] for s in def_entry.stamps])
-    if '[US]' in stamp_set and '[UK]' in stamp_set:
+    if '[US]' in stamp_set and '[UK]' in stamp_set and '[AUS]' in stamp_set:
         return 3
     elif '[US]' in stamp_set:
         return 0
@@ -71,8 +71,8 @@ def tags2str(tags):
     return results
 
 def normalize_set(a, b, c, ep=0):
-    tmp = a+b+ep*2
-    return ((a+ep)/tmp, (b+ep)/tmp)
+    tmp = a+b+c+ep*3
+    return ((a + ep) / tmp, (b + ep) / tmp, (c + ep) / tmp)
 
 def normalize_L2(array, axis=1):
     if axis == 1:
@@ -306,7 +306,7 @@ for n in range(N_trials):
             uk_slang_freq = ngram_lookup(word, date, '[UK]')
             aus_slang_freq = ngram_lookup(word, date, '[AUS]')
 
-            priors['form_need'].append(normalize_pair(us_slang_freq, uk_slang_freq ep=1e-8))
+            priors['form_need'].append(normalize_set(us_slang_freq, uk_slang_freq, aus_slang_freq, ep=1e-8))
 
             # Semantic Need
 
@@ -336,8 +336,8 @@ for n in range(N_trials):
                 else:
                     us_more_freq += 1
 
-            priors['semantic_freq'].append(normalize_pair(us_freq_total, uk_freq_total, ep=1e-8))
-            priors['semantic_major'].append(normalize_pair(us_more_freq, uk_more_freq, ep=1))
+            priors['semantic_freq'].append(normalize_set(us_freq_total, uk_freq_total, aus_freq_total, ep=1e-8))
+            priors['semantic_major'].append(normalize_set(us_more_freq, uk_more_freq, aus_more_freq, ep=1))
 
             # Context Need
 
@@ -375,8 +375,8 @@ for n in range(N_trials):
                     else:
                         us_more_freq += 1
 
-                priors['context_freq'].append(normalize_pair(us_freq_total, uk_freq_total, ep=1e-8))
-                priors['context_major'].append(normalize_pair(us_more_freq, uk_more_freq, ep=1))
+                priors['context_freq'].append(normalize_set(us_freq_total, uk_freq_total, aus_freq_total, ep=1e-8))
+                priors['context_major'].append(normalize_set(us_more_freq, uk_more_freq, aus_more_freq, ep=1))
 
         # Sample test senses
         
