@@ -467,10 +467,10 @@ for n in range(N_trials):
                     preds['lda_shared'] = preds['lda']
                 else:
                     us_shared_pos = [i for i in us_shared_inds[chain_pos] if i not in uk_shared_inds[chain_pos] and i not in aus_shared_inds[chain_pos]]
-                    uk_shared_pos = [i for i in uk_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos] and i not in uk_shared_inds[chain_pos]]
+                    uk_shared_pos = [i for i in uk_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos] and i not in aus_shared_inds[chain_pos]]
                     aus_shared_pos = [i for i in aus_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos] and i not in us_shared_inds[chain_pos]]
 
-                    embeds_tmp = np.concatenate((def_embeds[chain_memstart[chain_pos]:chain_pos], def_embeds_shared[us_shared_pos], def_embeds_shared[uk_shared_pos]), axis=0)
+                    embeds_tmp = np.concatenate((def_embeds[chain_memstart[chain_pos]:chain_pos], def_embeds_shared[us_shared_pos], def_embeds_shared[uk_shared_pos], def_embeds_shared[aus_shared_pos]), axis=0)
                     regions_tmp = np.concatenate((example_regions, [0]*len(us_shared_pos), [1]*len(uk_shared_pos, [2]*len(aus_shared_pos))))
 
                     lda_shared = LinearDiscriminantAnalysis(n_components=1)
@@ -507,10 +507,32 @@ for n in range(N_trials):
             uk_proto_dist = np.linalg.norm(uk_prototype-def_embeds[chain_pos])
             aus_proto_dist = np.linalg.norm(aus_prototype-def_embeds[chain_pos])
 
+            nn_int = 0
+            if np.max(us_dists) < np.max(uk_dists) and np.max(us_dists) < np.max(aus_dists):
+                nn_int = 0
+            elif np.max(uk_dists) < np.max(us_dists) and np.max(uk_dists) < np.max(aus_dists):
+                nn_int = 1
+            else:
+                nn_int = 2
+            preds['1nn'] = int(nn_int)
 
-            preds['1nn'] = int(np.max(us_dists) < np.max(uk_dists))
-            preds['exemplar'] = int(np.mean(us_dists) < np.mean(uk_dists))
-            preds['prototype'] = int(us_proto_dist > uk_proto_dist)
+            exemplar_int = 0
+            if np.mean(us_dists) < np.mean(uk_dists) and np.mean(us_dists) < np.mean(aus_dists):
+                exemplar_int = 0
+            elif np.mean(uk_dists) < np.mean(us_dists) and np.mean(uk_dists) < np.mean(aus_dists):
+                exemplar_int = 1
+            else:
+                exemplar_int = 2
+            preds['exemplar'] = int(exemplar_int)
+
+            proto_test = 0
+            if us_proto_dist > uk_proto_dist and us_proto_dist > uk_proto_dist:
+                proto_test = 0
+            elif uk_proto_dist > us_proto_dist and uk_proto_dist > aus_proto_dist:
+                proto_test = 1
+            else:
+                proto_test = 2
+            preds['prototype'] = int(proto_test)
 
             # Optimize kernel width parameter (h) if training data is available
             # Only need to optimize exemplar since we're not using a prior
@@ -586,9 +608,9 @@ for n in range(N_trials):
                 aus_proto_dist = np.linalg.norm(aus_prototype-def_embeds[chain_pos])
 
 
-                preds['1nn_shared'] = int(np.max(us_dists) < np.max(uk_dists))
-                preds['exemplar_shared'] = int(np.mean(us_dists) < np.mean(uk_dists))
-                preds['prototype_shared'] = int(us_proto_dist > uk_proto_dist)
+                preds['1nn_shared'] = int((np.max(us_dists) < np.max(uk_dists)) + (np.max(uk_dists) < np.max(aus_dists)))
+                preds['exemplar_shared'] = int((np.mean(us_dists) < np.mean(uk_dists)) + (np.mean(uk_dists) < np.mean(aus_dists)))
+                preds['prototype_shared'] = int((us_proto_dist > uk_proto_dist) + (uk_proto_dist > aus_proto_dist))
 
                 exemplar_starts = exemplar_valid_pos[exemplar_valid_pos < chain_pos]
                 if exemplar_starts.shape[0] != 0:
