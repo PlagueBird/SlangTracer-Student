@@ -3,6 +3,9 @@ import pickle
 import re
 import urllib
 import time
+import nltk
+
+nltk.download('stopwords')
 
 import numpy as np
 import scipy.spatial.distance as dist
