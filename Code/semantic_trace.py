@@ -138,6 +138,7 @@ for word in GSD_by_word.keys():
         GSD_entries_shared[word] = [entries_all[i] for i in range(len(entries_all)) if regions_all[i] == 2]
         
 exp_words = list(GSD_entries.keys())
+print(exp_words)
 
 ngrams_cache = pickle.load(open('ngrams_cache.pickle', 'rb'))
 
@@ -153,15 +154,14 @@ def create_url(word, yr_start, yr_end, corpus='[US]', case_insensitive=True):
     url += '&corpus='
     if corpus == '[US]':
         url += str(28)
-    if corpus == '[UK]':
+    if corpus == '[UK]' or corpus == '[AUS]':
         url += str(29)
-    if corpus == '[AUS]':
-        url += str(30)
     url += '&smoothing=0'
     return url
 
 def url_query(word, yr_start, yr_end, corpus='[US]'):
     url = create_url(word, yr_start, yr_end, corpus)
+    # print('\n' + url)
     try:
         r = urllib.request.urlopen(url)
         for line in str(r.read()).split('\\n'):
@@ -179,6 +179,8 @@ def url_query(word, yr_start, yr_end, corpus='[US]'):
     return results
 
 def ngram_lookup(word, year, corpus='[US]'):
+    if corpus=='[AUS]':
+        corpus = '[UK]'
     if (word, year, corpus) not in ngrams_cache:
         results = url_query(word, year-10, year-1, corpus)
         while results is None:
@@ -684,7 +686,7 @@ model_list = {'Baseline': ['sense_freq', 'sense_freq_shared'],\
                       'Chaining':['1nn', 'prototype', 'exemplar'],\
                       'Chaining - Shared':['1nn_shared', 'prototype_shared', 'exemplar_shared']}
 
-print("%51s%12s%14s" % ("[US]", "[UK]", "[AUS]", "Total"))
+print("%51s%12s%14s%14s" % ("[US]", "[UK]", "[AUS]", "Total"))
 for group, models in model_list.items():
     print("["+group.upper()+"]")
     for model in models:
@@ -698,7 +700,7 @@ for group, models in model_list.items():
         aus_correct = np.asarray([correct_counts_sample[('[AUS]', n)][model] for n in range(N_trials)])
         aus_total = np.asarray([pred_count_sample[('[AUS]', n)] for n in range(N_trials)])
 
-        print("%35s:   %.1f (%.2f)  %.1f (%.2f)  %.1f (%.2f)" % \
+        print("%35s:   %.1f (%.2f)  %.1f (%.2f)  %.1f (%.2f)  %.1f (%.2f)" % \
             (model.upper(), \
             np.mean(us_correct / us_total * 100), np.std(us_correct / us_total * 100),\
             np.mean(uk_correct / uk_total * 100), np.std(uk_correct / uk_total * 100),\
