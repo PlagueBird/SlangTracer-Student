@@ -18,6 +18,7 @@ from nltk.corpus import stopwords as sw
 from gensim.utils import simple_preprocess
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
 
 from tqdm import trange
 
@@ -194,8 +195,8 @@ MEM = 30000
 categories = ['[US]', '[UK]']
 model_tags = ['sense_freq', 'sense_freq_shared', \
               'lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared', \
-              '1nn', 'prototype', 'exemplar', 'exemplar_opt', \
-              '1nn_shared', 'prototype_shared', 'exemplar_shared', 'exemplar_opt_shared']
+              '1nn', 'knn', 'prototype', 'exemplar', 'exemplar_opt', \
+              '1nn_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared', 'exemplar_opt_shared']
 
 embedder = SentenceTransformer('bert-base-nli-mean-tokens')
 
@@ -479,7 +480,17 @@ for n in range(N_trials):
             us_proto_dist = np.linalg.norm(us_prototype-def_embeds[chain_pos])
             uk_proto_dist = np.linalg.norm(uk_prototype-def_embeds[chain_pos])
 
+            # KNN Prediction
+            K = min(5, N_sample - 1)  # Number of neighbors
+            train_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos]  # Training embeddings
+            train_labels = example_regions  # 0 for US, 1 for UK
+
+            # Fit KNN model and predict
+            knn = KNeighborsClassifier(n_neighbors=K)
+            knn.fit(train_embeds, train_labels)
+
             preds['1nn'] = int(np.max(us_dists) < np.max(uk_dists))
+            preds['knn'] = knn.predict(def_embeds[chain_pos][np.newaxis, :])[0]
             preds['exemplar'] = int(np.mean(us_dists) < np.mean(uk_dists))
             preds['prototype'] = int(us_proto_dist > uk_proto_dist)
 
@@ -517,6 +528,7 @@ for n in range(N_trials):
 
             if len(entries_shared) == 0:
                 preds['1nn_shared'] = preds['1nn']
+                preds['knn_shared'] = preds['knn']
                 preds['exemplar_shared'] = preds['exemplar']
                 preds['prototype_shared'] = preds['prototype']
             else:
@@ -543,7 +555,16 @@ for n in range(N_trials):
                 us_proto_dist = np.linalg.norm(us_prototype-def_embeds[chain_pos])
                 uk_proto_dist = np.linalg.norm(uk_prototype-def_embeds[chain_pos])
 
+                # KNN Prediction with shared senses
+                train_embeds_shared = np.concatenate((us_def_embeds, uk_def_embeds), axis=0)
+                train_labels_shared = np.concatenate((np.zeros(len(us_def_embeds)), np.ones(len(uk_def_embeds))))
+
+                K = min(5, N_sample - 1)  # Number of neighbors
+                knn_shared = KNeighborsClassifier(n_neighbors=K)
+                knn_shared.fit(train_embeds_shared, train_labels_shared)
+
                 preds['1nn_shared'] = int(np.max(us_dists) < np.max(uk_dists))
+                preds['knn_shared'] = knn_shared.predict(def_embeds[chain_pos][np.newaxis, :])[0]
                 preds['exemplar_shared'] = int(np.mean(us_dists) < np.mean(uk_dists))
                 preds['prototype_shared'] = int(us_proto_dist > uk_proto_dist)
 
@@ -601,14 +622,14 @@ for n in range(N_trials):
 model_list = {'Baseline': ['sense_freq', 'sense_freq_shared'],\
                       'Need':['form_need', 'semantic_freq', 'semantic_major', 'context_freq', 'context_major'],\
                       'Simple':['lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared'],\
-                      'Chaining':['1nn', 'prototype', 'exemplar'],\
-                      'Chaining - Shared':['1nn_shared', 'prototype_shared', 'exemplar_shared']}
+                      'Chaining':['1nn', 'knn', 'prototype', 'exemplar'],\
+                      'Chaining - Shared':['1nn_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared']}
 
 model_list = {'Baseline': ['sense_freq', 'sense_freq_shared'],\
                       'Need':['form_need', 'semantic_freq', 'semantic_major', 'context_freq', 'context_major'],\
                       'Simple':['lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared'],\
-                      'Chaining':['1nn', 'prototype', 'exemplar'],\
-                      'Chaining - Shared':['1nn_shared', 'prototype_shared', 'exemplar_shared']}
+                      'Chaining':['1nn', 'knn', 'prototype', 'exemplar'],\
+                      'Chaining - Shared':['1nn_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared']}
 
 # Redirect print output to a StringIO object
 output_buffer = io.StringIO()
