@@ -179,15 +179,12 @@ def url_query(word, yr_start, yr_end, corpus='[US]'):
     return results
 
 def ngram_lookup(word, year, corpus='[US]'):
-    if corpus=='[AUS]':
-        corpus = '[UK]'
     if (word, year, corpus) not in ngrams_cache:
         results = url_query(word, year-10, year-1, corpus)
         while results is None:
             print('Access Blocked - Waiting')
             time.sleep(300)
             results = url_query(word, year-10, year-1, corpus)
-            #getting false results for UK from line 184
         ngrams_cache[(word, year, corpus)] = np.mean(results)
     return ngrams_cache[(word, year, corpus)]
 
