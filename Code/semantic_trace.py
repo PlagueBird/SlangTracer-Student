@@ -16,8 +16,6 @@ from collections import defaultdict, namedtuple
 
 from nltk.corpus import stopwords as sw
 from gensim.utils import simple_preprocess
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 
@@ -168,11 +166,15 @@ def url_query(word, yr_start, yr_end, corpus='[US]'):
         r = urllib.request.urlopen(url)
         for line in str(r.read()).split('\\n'):
             if 'ngrams.data = ' in line:
-                if 'ngram' in line.strip().split(':')[4][-6:]:
-                    results = [float(s.strip()) for s in line.strip().split(':')[4].strip()[1:-12].split(',')]
+                if 'JSON.parse' in line:
+                    results = [0.]*10
+                    return results
                 else:
-                    results = [float(s.strip()) for s in line.strip().split(':')[4].strip()[1:-4].split(',')]
-                break
+                    if 'ngram' in line.strip().split(':')[4][-6:]:
+                        results = [float(s.strip()) for s in line.strip().split(':')[4].strip()[1:-12].split(',')]
+                    else:
+                        results = [float(s.strip()) for s in line.strip().split(':')[4].strip()[1:-4].split(',')]
+                    break
     except urllib.error.HTTPError as err:
         if '429' in str(err):
             return None
@@ -191,13 +193,12 @@ def ngram_lookup(word, year, corpus='[US]'):
     return ngrams_cache[(word, year, corpus)]
 
 # Running Models on the Data
-N_trials = 25
+N_trials = 20
 MEM = 30000
 categories = ['[US]', '[UK]']
 model_tags = ['sense_freq', 'sense_freq_shared', \
-              'lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared', \
-              '1nn', 'knn', 'tree' 'prototype', 'exemplar', 'exemplar_opt', \
-              '1nn_shared', 'knn_shared', 'tree_shared' 'prototype_shared', 'exemplar_shared', 'exemplar_opt_shared']
+              '1nn', 'knn', 'tree', 'prototype', 'exemplar', 'exemplar_opt', \
+              '1nn_shared', 'knn_shared', 'tree_shared', 'prototype_shared', 'exemplar_shared', 'exemplar_opt_shared']
 
 embedder = SentenceTransformer('bert-base-nli-mean-tokens')
 
@@ -431,42 +432,6 @@ for n in range(N_trials):
             else:
                 preds['sense_freq_shared'] = preds['sense_freq']
 
-            # LDA method
-
-            if chain_pos - chain_memstart[chain_pos] == 2:
-                # Need more examples than number of classes
-                preds['lda'] = 0
-                preds['lda_shared'] = 0
-            else:
-                lda = LinearDiscriminantAnalysis(n_components=1)
-                
-                lda.fit(def_embeds[chain_memstart[chain_pos]:chain_pos], example_regions)
-                preds['lda'] = lda.predict(def_embeds[chain_pos][np.newaxis, :])
-
-                if len(entries_shared) == 0:
-                    preds['lda_shared'] = preds['lda']
-                else:
-                    us_shared_pos = [i for i in us_shared_inds[chain_pos] if i not in uk_shared_inds[chain_pos]]
-                    uk_shared_pos = [i for i in uk_shared_inds[chain_pos] if i not in us_shared_inds[chain_pos]]
-
-                    embeds_tmp = np.concatenate((def_embeds[chain_memstart[chain_pos]:chain_pos], def_embeds_shared[us_shared_pos], def_embeds_shared[uk_shared_pos]), axis=0)
-                    regions_tmp = np.concatenate((example_regions, [0]*len(us_shared_pos), [1]*len(uk_shared_pos)))
-
-                    lda_shared = LinearDiscriminantAnalysis(n_components=1)
-                    lda_shared.fit(embeds_tmp, regions_tmp)
-                    preds['lda_shared'] = lda_shared.predict(def_embeds[chain_pos][np.newaxis, :])
-
-            # Logistic Regression
-
-            lr = LogisticRegression().fit(def_embeds[chain_memstart[chain_pos]:chain_pos], example_regions)
-            preds['logistic_reg'] = lr.predict(def_embeds[chain_pos][np.newaxis, :])
-
-            if len(entries_shared) == 0:
-                preds['logistic_reg_shared'] = preds['logistic_reg']
-            else:
-                lr_shared = LogisticRegression().fit(embeds_tmp, regions_tmp)
-                preds['logistic_reg_shared'] = lr_shared.predict(def_embeds[chain_pos][np.newaxis, :])
-
             # Semantic Chaining
 
             us_dists = np.exp(embed_dists[chain_pos][chain_memstart[chain_pos]:chain_pos][example_regions==0])
@@ -480,30 +445,27 @@ for n in range(N_trials):
 
             us_proto_dist = np.linalg.norm(us_prototype-def_embeds[chain_pos])
             uk_proto_dist = np.linalg.norm(uk_prototype-def_embeds[chain_pos])
-            
-             # KNN Prediction
-            K = min(5, N_sample - 1)  # Number of neighbors
+
+            # KNN Prediction
+            num_trainers = len(def_embeds[chain_memstart[chain_pos]:chain_pos])
+            K = min(5, num_trainers)  # Number of neighbors
             train_embeds = def_embeds[chain_memstart[chain_pos]:chain_pos]  # Training embeddings
             train_labels = example_regions  # 0 for US, 1 for UK
-            
+
+            # Decision Tree 
             tree = DecisionTreeClassifier()
             tree.fit(train_embeds, train_labels)
-
             preds['tree'] = tree.predict(def_embeds[chain_pos][np.newaxis, :])[0]
             
             if len(entries_shared) > 0:
             # Train embeds with shared senses
                 train_embeds_shared = np.concatenate((us_def_embeds, uk_def_embeds), axis=0)
                 train_labels_shared = np.concatenate((np.zeros(len(us_def_embeds)), np.ones(len(uk_def_embeds))))
-
                 tree_shared = DecisionTreeClassifier()
                 tree_shared.fit(train_embeds_shared, train_labels_shared)
-
                 preds['tree_shared'] = tree_shared.predict(def_embeds[chain_pos][np.newaxis, :])[0]
             else:
                 preds['tree_shared'] = preds['tree']
-
-           
 
             # Fit KNN model and predict
             knn = KNeighborsClassifier(n_neighbors=K)
@@ -511,7 +473,6 @@ for n in range(N_trials):
 
             preds['1nn'] = int(np.max(us_dists) < np.max(uk_dists))
             preds['knn'] = knn.predict(def_embeds[chain_pos][np.newaxis, :])[0]
-            
             preds['exemplar'] = int(np.mean(us_dists) < np.mean(uk_dists))
             preds['prototype'] = int(us_proto_dist > uk_proto_dist)
 
@@ -580,7 +541,8 @@ for n in range(N_trials):
                 train_embeds_shared = np.concatenate((us_def_embeds, uk_def_embeds), axis=0)
                 train_labels_shared = np.concatenate((np.zeros(len(us_def_embeds)), np.ones(len(uk_def_embeds))))
 
-                K = min(5, N_sample - 1)  # Number of neighbors
+                num_trainers_shared = len(train_embeds_shared)
+                K = min(5, num_trainers_shared)  # Number of neighbors
                 knn_shared = KNeighborsClassifier(n_neighbors=K)
                 knn_shared.fit(train_embeds_shared, train_labels_shared)
 
@@ -640,21 +602,15 @@ for n in range(N_trials):
                 if value == target_region:
                     correct_counts_sample[(target_str, n)][key] += 1
 
-model_list = {
-    'Baseline': ['sense_freq', 'sense_freq_shared'],
-    'Need': ['form_need', 'semantic_freq', 'semantic_major', 'context_freq', 'context_major'],
-    'Simple': ['lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared'],
-    'Chaining': ['1nn', 'knn', 'prototype', 'exemplar', 'tree'],
-    'Chaining - Shared': ['1nn_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared', 'tree_shared']
-}
+model_list = {'Baseline': ['sense_freq', 'sense_freq_shared'],\
+                      'Need':['form_need', 'semantic_freq', 'semantic_major', 'context_freq', 'context_major'],\
+                      'Chaining':['1nn', 'knn', 'tree', 'prototype', 'exemplar'],\
+                      'Chaining - Shared':['1nn_shared', 'tree_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared']}
 
-model_list = {
-    'Baseline': ['sense_freq', 'sense_freq_shared'],
-    'Need': ['form_need', 'semantic_freq', 'semantic_major', 'context_freq', 'context_major'],
-    'Simple': ['lda', 'lda_shared', 'logistic_reg', 'logistic_reg_shared'],
-    'Chaining': ['1nn', 'knn', 'prototype', 'exemplar', 'tree'],
-    'Chaining - Shared': ['1nn_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared', 'tree_shared']
-}
+model_list = {'Baseline': ['sense_freq', 'sense_freq_shared'],\
+                      'Need':['form_need', 'semantic_freq', 'semantic_major', 'context_freq', 'context_major'],\
+                      'Chaining':['1nn', 'knn', 'tree', 'prototype', 'exemplar'],\
+                      'Chaining - Shared':['1nn_shared', 'tree_shared', 'knn_shared', 'prototype_shared', 'exemplar_shared']}
 
 # Redirect print output to a StringIO object
 output_buffer = io.StringIO()
