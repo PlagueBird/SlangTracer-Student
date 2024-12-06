@@ -126,9 +126,9 @@ for word in GSD_by_word.keys():
     regions_sorted = regions[date_ind]
     
     dates = np.asarray([entry.stamps[0][0] for entry in entries_sorted])
-    if np.sum(dates < 1900) == 0:
+    if np.sum(dates < 2000) == 0:
         continue
-    if np.sum(dates >= 1900) == 0:
+    if np.sum(dates >= 2000) == 0:
         continue
     
     if np.min([np.sum(regions==i) for i in range(2)]) >= MIN_REGION:
@@ -160,8 +160,18 @@ def create_url(word, yr_start, yr_end, corpus='[US]', case_insensitive=True):
     url += '&smoothing=0'
     return url
 
+def is_ascii(word):
+    """Check if a word contains only ASCII characters."""
+    return all(ord(c) < 128 for c in word)
+
 def url_query(word, yr_start, yr_end, corpus='[US]'):
-    url = create_url(word, yr_start, yr_end, corpus)
+    # Filter out words that contain non-ASCII characters
+    if not is_ascii(word):
+        print(f"Skipping word with non-ASCII character: {word}")
+        return [0.]*10  # Skip the request if the word is not ASCII
+    
+    encoded_word = urllib.parse.quote(word)
+    url = create_url(encoded_word, yr_start, yr_end, corpus)
     try:
         r = urllib.request.urlopen(url)
         for line in str(r.read()).split('\\n'):
@@ -177,6 +187,7 @@ def url_query(word, yr_start, yr_end, corpus='[US]'):
                     break
     except urllib.error.HTTPError as err:
         if '429' in str(err):
+            print("HTTP 429 Error")
             return None
         results = [0.]*10
     time.sleep(2)
@@ -186,14 +197,14 @@ def ngram_lookup(word, year, corpus='[US]'):
     if (word, year, corpus) not in ngrams_cache:
         results = url_query(word, year-10, year-1, corpus)
         while results is None:
-            print('Access Blocked - Waiting')
-            time.sleep(300)
+            print('Access Blocked - Waiting on Word:', word)
+            time.sleep(60)
             results = url_query(word, year-10, year-1, corpus)
         ngrams_cache[(word, year, corpus)] = np.mean(results)
     return ngrams_cache[(word, year, corpus)]
 
 # Running Models on the Data
-N_trials = 20
+N_trials = 100
 MEM = 30000
 categories = ['[US]', '[UK]']
 model_tags = ['sense_freq', 'sense_freq_shared', \
@@ -290,7 +301,7 @@ for n in range(N_trials):
 
             example_regions = regions[:p]
 
-            if dates[p] < 1900:
+            if dates[p] < 2000:
                 for key in priors.keys():
                     priors[key].append((0.5,0.5))
                 continue
@@ -366,7 +377,7 @@ for n in range(N_trials):
         # Sample test senses
         
         chain_start = 1
-        while dates[chain_start] < 1900:
+        while dates[chain_start] < 2000:
             chain_start += 1
 
         chain_us = np.arange(chain_start, len(dates))[regions[chain_start:]==0]
@@ -385,7 +396,7 @@ for n in range(N_trials):
             
         for chain_pos in chain:
 
-            if dates[chain_pos] < 1900:
+            if dates[chain_pos] < 2000:
                 continue
 
             example_regions = regions[chain_memstart[chain_pos]:chain_pos]
